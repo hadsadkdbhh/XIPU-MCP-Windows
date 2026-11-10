@@ -49,6 +49,7 @@ function emptyDeadlines(snapshot:any){
 }
 function remainingTime(at:string){const seconds=(Date.parse(at)-Date.now())/1000;return seconds<3600?'不足 1 小时':seconds<86400?`剩 ${Math.ceil(seconds/3600)} 小时`:`剩 ${Math.ceil(seconds/86400)} 天`;}
 function widgetCard(snapshot:any){
+  if(state.platform==='win32')return `<div class="card widget-card"><div class="section-heading"><div><h2>DDL 后台同步 <span class="widget-label">Windows</span></h2><p>登录后、手动刷新、每小时及睡眠唤醒后更新</p></div></div><div class="widget-sync"><strong>${html(deadlineStatus(snapshot))}</strong><span class="muted">${html(lastSync(snapshot))}</span></div><p class="muted">Windows 版不包含 macOS 桌面小组件。关闭主窗口后仍可通过系统托盘和 MCP 使用；退出 App 后停止同步。</p></div>`;
   const widget=state.widget??{},prefs=state.settings.widgets??{enabled:false,launchAtLogin:true},login=widget.login??{};
   const unavailable=!widget.available&&!prefs.enabled;
   const loginMessage=login.status==='requires-approval'?'等待系统批准：请在「系统设置 → 通用 → 登录项与扩展」中允许 XIPU MCP。':login.openAtLogin?'系统已注册：登录 Mac 后在后台运行。':login.status==='not-found'?'系统未找到登录项，请重新启用小组件后检查。':'系统未启用登录时运行。';

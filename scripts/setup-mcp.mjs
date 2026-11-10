@@ -78,7 +78,8 @@ function checkCodexResult(result, action) {
   if (result.error) throw new Error(`Codex ${action} could not run. The exported MCP JSON is ready; check CLI permissions and retry.`);
 }
 
-async function configureCodex(launcher, configPath, run) {
+async function configureCodex(entry, configPath, run) {
+  const { command: launcher, args } = entry;
   const before = run(['mcp', 'get', SERVER, '--json']);
   checkCodexResult(before, 'inspection');
   if (before.status === 0) {
@@ -86,7 +87,7 @@ async function configureCodex(launcher, configPath, run) {
     try { server = JSON.parse(before.stdout); } catch { throw new Error('Codex returned an unsupported configuration format; no Codex settings were modified.'); }
     const transport = server.transport;
     if (server.enabled !== false && transport?.type === 'stdio' && transport.command === launcher &&
-      (!transport.args || transport.args.length === 0) && (!transport.env || Object.keys(transport.env).length === 0)) {
+      JSON.stringify(transport.args ?? []) === JSON.stringify(args) && (!transport.env || Object.keys(transport.env).length === 0)) {
       return { changed: false };
     }
   } else if (!/No MCP server named .+ found/i.test(before.stderr ?? '')) {
@@ -95,14 +96,15 @@ async function configureCodex(launcher, configPath, run) {
   const original = await snapshot(configPath);
   const backupPath = original ? await backup(configPath, original) : undefined;
   await unchanged(configPath, original);
-  const result = run(['mcp', 'add', SERVER, '--', launcher]);
+  const result = run(['mcp', 'add', SERVER, '--', launcher, ...args]);
   checkCodexResult(result, 'configuration');
   if (result.status !== 0) throw new Error(`Codex refused the configuration. The exported MCP JSON is ready${backupPath ? `; backup: ${backupPath}` : ''}.`);
   const after = run(['mcp', 'get', SERVER, '--json']);
   checkCodexResult(after, 'verification');
   let verified;
   try { verified = JSON.parse(after.stdout ?? ''); } catch { /* Report a verification failure below without exposing CLI output. */ }
-  if (after.status !== 0 || verified?.transport?.type !== 'stdio' || verified.transport.command !== launcher || verified.enabled === false) {
+  if (after.status !== 0 || verified?.transport?.type !== 'stdio' || verified.transport.command !== launcher ||
+    JSON.stringify(verified.transport.args ?? []) !== JSON.stringify(args) || verified.enabled === false) {
     throw new Error(`Codex did not confirm the expected launcher${backupPath ? `; backup: ${backupPath}` : ''}.`);
   }
   const final = await snapshot(configPath);
@@ -111,26 +113,36 @@ async function configureCodex(launcher, configPath, run) {
 }
 
 /** Library options allow an isolated home and CLI runner for tests; the CLI always uses the current user's home. */
-export async function configureMcp({ client, app, configOutput, home = homedir(), run = runCodex, codexDirectory } = {}) {
+export async function configureMcp({ client, app, configOutput, home = homedir(), run = runCodex, codexDirectory, platform = process.platform } = {}) {
   if (!CLIENTS.includes(client)) throw new Error(`Choose one client: ${CLIENTS.join(', ')}.`);
   if (!app || !configOutput) throw new Error('Both --app and --config-output are required.');
+  const windows = platform === 'win32';
   const appPath = path.resolve(app);
-  const launcher = path.join(appPath, 'Contents', 'Resources', 'xipu-mcp');
+  const launcher = windows ? path.join(appPath, 'resources', 'node.exe') : path.join(appPath, 'Contents', 'Resources', 'xipu-mcp');
+  const bridge = windows ? path.join(appPath, 'resources', 'bridge.cjs') : undefined;
+  const executable = windows ? path.join(appPath, 'XIPU MCP.exe') : undefined;
   const launcherStat = await lstat(launcher).catch(() => null);
-  if (!appPath.endsWith('.app') || !launcherStat?.isFile() || launcherStat.isSymbolicLink()) throw new Error(`The installed App launcher was not found: ${launcher}`);
-  await access(launcher, constants.X_OK).catch(() => { throw new Error(`The installed App launcher is not executable: ${launcher}`); });
+  if ((!windows && !appPath.endsWith('.app')) || !launcherStat?.isFile() || launcherStat.isSymbolicLink()) throw new Error(`The installed App launcher was not found: ${launcher}`);
+  await access(launcher, windows ? constants.R_OK : constants.X_OK).catch(() => { throw new Error(`The installed App launcher is not usable: ${launcher}`); });
+  if (windows) {
+    for (const file of [bridge, executable]) {
+      const stat = await lstat(file).catch(() => null);
+      if (!stat?.isFile() || stat.isSymbolicLink()) throw new Error(`The installed Windows App file was not found: ${file}`);
+    }
+  }
   const exportPath = path.resolve(configOutput);
+  const roaming = home === homedir() && process.env.APPDATA ? process.env.APPDATA : path.join(home, 'AppData', 'Roaming');
   const configPath = client === 'cursor' ? path.join(home, '.cursor', 'mcp.json')
-    : client === 'claude-desktop' ? path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
+    : client === 'claude-desktop' ? windows ? path.join(roaming, 'Claude', 'claude_desktop_config.json') : path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')
       : client === 'codex' ? path.join(codexDirectory ?? (home === homedir() && process.env.CODEX_HOME ? process.env.CODEX_HOME : path.join(home, '.codex')), 'config.toml') : undefined;
   if (configPath && path.resolve(configPath) === exportPath) throw new Error('The exported JSON must use a separate path from the client configuration.');
-  const entry = { command: launcher, args: [] };
+  const entry = { command: launcher, args: windows ? [bridge] : [] };
   const exported = { mcpServers: { [SERVER]: entry } };
   const exportResult = await atomicWrite(exportPath, JSON.stringify(exported, null, 2) + '\n', await snapshot(exportPath));
   let configured = { changed: false };
   if (client === 'cursor' || client === 'claude-desktop') configured = await mergeJsonConfig(configPath, client === 'cursor' ? { type: 'stdio', ...entry } : entry);
-  else if (client === 'codex') configured = await configureCodex(launcher, configPath, run);
-  return { client, launcher, configPath, exportPath, ...configured, exportChanged: exportResult.changed, exportBackupPath: exportResult.backupPath };
+  else if (client === 'codex') configured = await configureCodex(entry, configPath, run);
+  return { client, launcher, args: entry.args, configPath, exportPath, ...configured, exportChanged: exportResult.changed, exportBackupPath: exportResult.backupPath };
 }
 
 function parseArguments(argv) {

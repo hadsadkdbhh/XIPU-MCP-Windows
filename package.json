@@ -17,6 +17,9 @@
     "build:widget": "node scripts/build-widget.mjs --arch arm64",
     "package:widget:arm64": "npm run build && npm run runtime -- arm64 && npm run build:widget && npm run electron-runtime -- arm64 && electron-builder --mac dir --arm64 --config scripts/widget-local.config.cjs --config.electronDist=runtime/electron/arm64",
     "package:arm64": "npm run build && npm run runtime -- arm64 && npm run electron-runtime -- arm64 && electron-builder --mac dmg --arm64 --config.electronDist=runtime/electron/arm64",
+    "runtime:win": "node scripts/windows-runtime.mjs",
+    "package:win:dir": "npm run build && npm run runtime:win && electron-builder --win dir --x64 --config scripts/windows.config.cjs",
+    "package:win": "npm run build && npm run runtime:win && electron-builder --win nsis --x64 --config scripts/windows.config.cjs",
     "package": "npm run package:arm64"
   },
   "dependencies": {

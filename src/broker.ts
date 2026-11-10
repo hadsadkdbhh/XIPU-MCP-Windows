@@ -1,19 +1,21 @@
 import net from 'node:net';
 import path from 'node:path';
-import { homedir } from 'node:os';
 import { chmod, readFile, writeFile, rm, lstat } from 'node:fs/promises';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { AppError, publicError, toolSchemas, type ToolName } from './shared.js';
+import { brokerEndpoint, defaultDataDirectory, isWindows } from './platform.js';
 
-export const dataDirectory = () => path.join(homedir(),'Library','Application Support','XIPU MCP');
-export const socketPath = (directory=dataDirectory()) => path.join(directory,'bridge.sock');
+export const dataDirectory = () => defaultDataDirectory();
+export const socketPath = (directory=dataDirectory()) => brokerEndpoint(directory);
 export const tokenPath = (directory=dataDirectory()) => path.join(directory,'bridge.token');
 export async function createBroker(directory:string, call:(name:ToolName,args:unknown)=>Promise<unknown>) {
   const file=socketPath(directory);let token:string;
   try{token=(await readFile(tokenPath(directory),'utf8')).trim();if(!/^[a-f0-9]{64}$/.test(token))throw new Error('Invalid token');}
   catch{token=randomBytes(32).toString('hex');await writeFile(tokenPath(directory),token,{mode:0o600});}
-  await chmod(tokenPath(directory),0o600);
-  try{const stat=await lstat(file);if(!stat.isSocket())throw new AppError('SOCKET_PATH','IPC 路径已存在且不是 socket。');await rm(file);}catch(e:any){if(e.code!=='ENOENT')throw e;}
+  if(!isWindows)await chmod(tokenPath(directory),0o600);
+  if(!isWindows){
+    try{const stat=await lstat(file);if(!stat.isSocket())throw new AppError('SOCKET_PATH','IPC 路径已存在且不是 socket。');await rm(file);}catch(e:any){if(e.code!=='ENOENT')throw e;}
+  }
   const connections=new Set<net.Socket>();
   const server=net.createServer(socket=>{
     connections.add(socket);socket.on('close',()=>connections.delete(socket));socket.on('error',()=>undefined);
@@ -35,8 +37,9 @@ export async function createBroker(directory:string, call:(name:ToolName,args:un
       })();
     });
   });
-  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(file,()=>{server.off('error',reject);resolve();});});await chmod(file,0o600);
-  return async()=>{for(const socket of connections)socket.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));await rm(file,{force:true});};
+  await new Promise<void>((resolve,reject)=>{server.once('error',reject);server.listen(file,()=>{server.off('error',reject);resolve();});});
+  if(!isWindows)await chmod(file,0o600);
+  return async()=>{for(const socket of connections)socket.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));if(!isWindows)await rm(file,{force:true});};
 }
 export async function brokerRequest(method:ToolName,args:unknown,directory=dataDirectory()):Promise<unknown> {
   const token=(await readFile(tokenPath(directory),'utf8')).trim();

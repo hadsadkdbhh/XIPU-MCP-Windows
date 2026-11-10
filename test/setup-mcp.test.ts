@@ -15,7 +15,7 @@ async function fixture() {
   const launcher = path.join(app, 'Contents', 'Resources', 'xipu-mcp');
   await mkdir(path.dirname(launcher), { recursive: true });
   await writeFile(launcher, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
-  return { root, app, launcher, home: root, configOutput: path.join(root, 'export', 'mcp.json'), close: () => rm(root, { recursive: true, force: true }) };
+  return { root, app, launcher, platform: 'darwin', home: root, configOutput: path.join(root, 'export', 'mcp.json'), close: () => rm(root, { recursive: true, force: true }) };
 }
 
 test('Cursor setup preserves other servers and settings with a private original backup, then is idempotent', async () => {
@@ -30,8 +30,10 @@ test('Cursor setup preserves other servers and settings with a private original 
     assert.deepEqual(data.mcpServers.existing, { command: 'keep', env: { SECRET: 'existing-only' } });
     assert.deepEqual(data.mcpServers['xipu-mcp'], { type: 'stdio', command: f.launcher, args: [] });
     assert.equal(await readFile(result.backupPath, 'utf8'), original);
-    assert.equal((await stat(config)).mode & 0o777, 0o600);
-    assert.equal((await stat(result.backupPath)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal((await stat(config)).mode & 0o777, 0o600);
+      assert.equal((await stat(result.backupPath)).mode & 0o777, 0o600);
+    }
     assert(!await readFile(f.configOutput, 'utf8').then(text => text.includes('existing-only')));
     const before = await stat(config);
     const second = await configureMcp({ ...f, client: 'cursor' });
@@ -76,7 +78,7 @@ test('config-only exports no credentials and launcher validation happens before 
   } finally { await f.close(); }
 });
 
-test('symlink configuration and export targets are refused', async () => {
+test('symlink configuration and export targets are refused', { skip: process.platform === 'win32' ? 'Creating file symlinks requires additional Windows privileges' : false }, async () => {
   const f = await fixture();
   try {
     const target = path.join(f.root, 'target.json'), link = path.join(f.root, 'link.json');
@@ -115,8 +117,10 @@ test('Codex uses the official CLI arguments, privately backs up settings and ver
     const result = await configureMcp({ ...f, client: 'codex', run });
     assert.deepEqual(calls, [['mcp', 'get', 'xipu-mcp', '--json'], ['mcp', 'add', 'xipu-mcp', '--', f.launcher], ['mcp', 'get', 'xipu-mcp', '--json']]);
     assert.equal(result.changed, true); assert.equal(await readFile(result.backupPath, 'utf8'), original);
-    assert.equal((await stat(result.backupPath)).mode & 0o777, 0o600);
-    assert.equal((await stat(configPath)).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal((await stat(result.backupPath)).mode & 0o777, 0o600);
+      assert.equal((await stat(configPath)).mode & 0o777, 0o600);
+    }
     const secondCalls: string[][] = [];
     const second = await configureMcp({ ...f, client: 'codex', run: (args: string[]) => { secondCalls.push(args); return run(['mcp', 'get', 'xipu-mcp', '--json']); } });
     assert.equal(second.changed, false); assert.equal(secondCalls.length, 1);
@@ -132,4 +136,28 @@ test('Codex configuration errors or failed verification do not claim success or 
     const run = () => ++calls === 1 ? { status: 1, stderr: "No MCP server named 'xipu-mcp' found" } : calls === 2 ? { status: 0 } : { status: 0, stdout: '{}' };
     await assert.rejects(configureMcp({ ...f, client: 'codex', run }), /did not confirm/);
   } finally { await f.close(); }
+});
+
+test('Windows setup uses bundled Node, bridge arguments and the roaming Claude configuration', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'xipu-setup-win-'));
+  try {
+    const app = path.join(root, 'Programs', 'XIPU MCP');
+    const launcher = path.join(app, 'resources', 'node.exe');
+    const bridge = path.join(app, 'resources', 'bridge.cjs');
+    for (const file of [launcher, bridge, path.join(app, 'XIPU MCP.exe')]) {
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, 'windows fixture');
+    }
+    const configPath = path.join(root, 'AppData', 'Roaming', 'Claude', 'claude_desktop_config.json');
+    await mkdir(path.dirname(configPath), { recursive: true });
+    await writeFile(configPath, '{"mcpServers":{"existing":{"command":"keep"}},"userSetting":true}');
+    const configOutput = path.join(root, 'export', 'mcp.json');
+    const result = await configureMcp({ client: 'claude-desktop', app, configOutput, home: root, platform: 'win32' });
+    assert.equal(result.configPath, configPath);
+    const config = JSON.parse(await readFile(configPath, 'utf8'));
+    assert.equal(config.userSetting, true);
+    assert.deepEqual(config.mcpServers.existing, { command: 'keep' });
+    assert.deepEqual(config.mcpServers['xipu-mcp'], { command: launcher, args: [bridge] });
+    assert.deepEqual(JSON.parse(await readFile(configOutput, 'utf8')).mcpServers['xipu-mcp'], { command: launcher, args: [bridge] });
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

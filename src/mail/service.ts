@@ -9,18 +9,18 @@ export interface OtpProvider {
   waitForCode(baseline: Baseline, signal?: AbortSignal): Promise<string>;
 }
 export class MailService implements OtpProvider {
-  constructor(private config: MailSettings, private password: string) {}
+  constructor(private config: MailSettings, private password: string, private testCa?: string | Buffer) {}
   private async imap<T>(callback: (client: ImapFlow) => Promise<T>) {
     validateMail(this.config, this.password);
     const client = new ImapFlow({ host: this.config.host, port: this.config.port, secure: this.config.security === 'tls', doSTARTTLS: this.config.security === 'starttls',
       auth: { user: this.config.username, pass: this.password }, logger: false, disableAutoIdle: true,
-      connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 15_000, tls: { rejectUnauthorized: true, minVersion: 'TLSv1.2' } });
+      connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 15_000, tls: { rejectUnauthorized: true, minVersion: 'TLSv1.2', ca: this.testCa } });
     client.on('error', () => { /* connection errors are handled by the pending protocol operation */ });
     try { await client.connect(); await client.mailboxOpen(this.config.folder, { readOnly: true }); return await callback(client); }
     finally { try { await client.logout(); } catch { client.close(); } }
   }
   private async pop<T>(callback: (client: Pop3Client) => Promise<T>) {
-    validateMail(this.config, this.password); const client = new Pop3Client(this.config, this.password);
+    validateMail(this.config, this.password); const client = new Pop3Client(this.config, this.password, this.testCa);
     try { await client.connect(); return await callback(client); } finally { await client.close(); }
   }
   async test() {

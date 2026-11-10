@@ -1,9 +1,10 @@
-import { app,BrowserWindow,ipcMain,dialog,utilityProcess,shell,Menu,powerMonitor } from 'electron';
+import { app,BrowserWindow,ipcMain,dialog,utilityProcess,shell,Menu,powerMonitor,Tray,nativeImage } from 'electron';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import { isWindows } from './platform.js';
 import { Store } from './store.js';
 import { AuthService } from './auth.js';
 import { MoodleClient } from './moodle/client.js';
@@ -30,7 +31,7 @@ if(process.argv.includes('--widget-smoke')) {
   app.on('open-url',(event,url)=>{event.preventDefault();if(openDeadlineLink)openDeadlineLink(url);else if(pendingDeadlineLinks.length<8)pendingDeadlineLinks.push(url);});
   app.setPath('userData',dataDirectory());
   if(!app.requestSingleInstanceLock())app.quit();
-  else void main().catch(()=>{void dialog.showMessageBox({type:'error',message:'XIPU MCP 无法启动。请检查钥匙串、App 数据目录权限及安装文件。'}).then(()=>app.quit());});
+  else void main().catch(()=>{void dialog.showMessageBox({type:'error',message:'XIPU MCP 无法启动。请检查系统凭据保护、App 数据目录权限及安装文件。'}).then(()=>app.quit());});
 }
 async function main() {
   await app.whenReady();const store=new Store(app.getPath('userData'));await store.load();let window:BrowserWindow|undefined;
@@ -53,7 +54,7 @@ async function main() {
     syncChanged:changed,
   });
   await deadlines.load();
-  const refreshWidget=()=>{if(!changingAccount&&store.settings.widgets.enabled&&nativeWidget.available)void deadlines.refresh().catch(()=>undefined);};
+  const refreshWidget=()=>{if(!changingAccount&&(isWindows||(store.settings.widgets.enabled&&nativeWidget.available)))void deadlines.refresh().catch(()=>undefined);};
   let previousAuthState:string|undefined;
   authChanged=()=>{const state=auth.status.state;if(state===previousAuthState)return;previousAuthState=state;void deadlines.setConnectionState(state==='authenticated'?'connected':state==='unconfigured'?'unconfigured':'login_required').then(()=>{if(state==='authenticated')refreshWidget();}).catch(()=>undefined);};
   const loginState=()=>process.platform==='darwin'&&app.isPackaged?app.getLoginItemSettings({type:'mainAppService'}):{openAtLogin:false,wasOpenedAtLogin:false,status:'not-registered'};
@@ -114,14 +115,24 @@ async function main() {
   const closeBroker=await createBroker(store.directory,call);
   const show=()=>{
     if(window&&!window.isDestroyed()){window.show();window.focus();return;}
-    window=new BrowserWindow({width:1180,height:820,minWidth:900,minHeight:640,title:'XIPU MCP',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
+    window=new BrowserWindow({width:1180,height:820,minWidth:900,minHeight:640,title:'XIPU MCP',autoHideMenuBar:isWindows,webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}});
     window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
     window.webContents.on('will-navigate',event=>event.preventDefault());
     void window.loadFile(path.join(__dirname,'ui','index.html'));window.on('closed',()=>{window=undefined;});
   };
   openDeadlineLink=url=>{const link=parseDeadlineLink(url,id=>deadlines.snapshot.deadlines.some(deadline=>deadline.id===id));if(!link)return;navigation={view:'deadlines',...link,revision:++navigationRevision};show();changed();};
   for(const url of pendingDeadlineLinks.splice(0))openDeadlineLink(url);
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
+  let tray:Tray|undefined;
+  if(isWindows){
+    Menu.setApplicationMenu(null);
+    const iconPath=app.isPackaged?path.join(process.resourcesPath,'icon.png'):path.join(app.getAppPath(),'assets','icon.png');
+    const icon=nativeImage.createFromPath(iconPath);
+    if(!icon.isEmpty()){
+      tray=new Tray(icon.resize({width:16,height:16}));tray.setToolTip('XIPU MCP');
+      tray.setContextMenu(Menu.buildFromTemplate([{label:'打开 XIPU MCP',click:show},{type:'separator'},{label:'退出 XIPU MCP',click:()=>app.quit()}]));
+      tray.on('double-click',show);
+    }
+  }else Menu.setApplicationMenu(Menu.buildFromTemplate([
     {label:'XIPU MCP',submenu:[{role:'about',label:'关于 XIPU MCP'},{label:'显示主窗口',click:show},{type:'separator'},{role:'quit',label:'退出 XIPU MCP'}]},
     {label:'编辑',submenu:[{role:'undo',label:'撤销'},{role:'redo',label:'重做'},{type:'separator'},{role:'cut',label:'剪切'},{role:'copy',label:'复制'},{role:'paste',label:'粘贴'},{role:'selectAll',label:'全选'}]},
     {role:'windowMenu',label:'窗口',submenu:[{role:'minimize',label:'最小化'},{role:'zoom',label:'缩放'},{role:'front',label:'全部置前'}]},
@@ -131,7 +142,7 @@ async function main() {
     try {
       authorize(event);
       switch(command) {
-        case 'state':return {ok:true,result:{settings:store.settings,hasSchoolPassword:!!store.secrets.schoolPassword,hasMailPassword:!!store.secrets.mailPassword,auth:auth.status,jobs:downloads.list(),courses:moodle.courses.size?[...moodle.courses.values()]:deadlines.snapshot.courses,deadlines:deadlines.snapshot,widget:{available:nativeWidget.available,message:nativeWidget.message,syncing:deadlines.syncing,login:loginState()},navigation,version:app.getVersion()}};
+        case 'state':return {ok:true,result:{settings:store.settings,hasSchoolPassword:!!store.secrets.schoolPassword,hasMailPassword:!!store.secrets.mailPassword,auth:auth.status,jobs:downloads.list(),courses:moodle.courses.size?[...moodle.courses.values()]:deadlines.snapshot.courses,deadlines:deadlines.snapshot,widget:{available:nativeWidget.available,message:nativeWidget.message,syncing:deadlines.syncing,login:loginState()},navigation,platform:process.platform,version:app.getVersion()}};
         case 'save-settings':{
           const settings=SettingsSchema.parse({...payload.settings,widgets:store.settings.widgets});const accountChanged=settings.username!==store.settings.username;
           if(payload.schoolPassword!==undefined&&typeof payload.schoolPassword!=='string'||payload.mailPassword!==undefined&&typeof payload.mailPassword!=='string')throw new AppError('CONFIG_INVALID','凭据格式无效。');
@@ -158,8 +169,9 @@ async function main() {
         case 'clear-secrets':changingAccount=true;try{await deadlines.reset();await downloads.shutdown();await auth.clear();moodle.clear();textCache.clear();navigation=undefined;changed();return {ok:true,result:true};}finally{changingAccount=false;}
         case 'choose-directory':{const result=await dialog.showOpenDialog(window!,{properties:['openDirectory','createDirectory']});return {ok:true,result:result.canceled?null:result.filePaths[0]};}
         case 'mcp-config':{
-          const command=app.isPackaged?path.join(process.resourcesPath,'xipu-mcp'):process.execPath;
-          const config=app.isPackaged?{command,args:[]}:{command:process.env.XIPU_NODE_BINARY??'/opt/homebrew/bin/node',args:[path.join(__dirname,'bridge.cjs')]};
+          const config=app.isPackaged
+            ?isWindows?{command:path.join(process.resourcesPath,'node.exe'),args:[path.join(process.resourcesPath,'bridge.cjs')]}:{command:path.join(process.resourcesPath,'xipu-mcp'),args:[]}
+            :{command:process.env.XIPU_NODE_BINARY??(isWindows?'node':'/opt/homebrew/bin/node'),args:[path.join(__dirname,'bridge.cjs')]};
           return {ok:true,result:{mcpServers:{'xipu-mcp':config}}};
         }
         case 'open-link':{const url=new URL(payload);if(url.origin!=='https://core.xjtlu.edu.cn')throw new AppError('URL_DENIED','只能打开学校 Moodle 来源链接。');await shell.openExternal(url.href);return {ok:true,result:true};}
@@ -171,7 +183,7 @@ async function main() {
   app.on('second-instance',(_event,argv)=>{const link=argv.find(value=>value.startsWith('xipu-mcp:'));if(link)openDeadlineLink?.(link);else show();});app.on('activate',()=>show());
   app.on('window-all-closed',()=>{/* Background broker remains available to MCP clients. */});
   let quitting=false;
-  app.on('before-quit',event=>{if(quitting)return;event.preventDefault();quitting=true;clearInterval(interval);powerMonitor.removeListener('resume',refreshWidget);void(async()=>{await deadlines.dispose();await downloads.shutdown();await closeBroker();app.quit();})();});
+  app.on('before-quit',event=>{if(quitting)return;event.preventDefault();quitting=true;clearInterval(interval);powerMonitor.removeListener('resume',refreshWidget);void(async()=>{await deadlines.dispose();await downloads.shutdown();await closeBroker();tray?.destroy();app.quit();})();});
   if(!process.argv.includes('--background')&&!loginState().wasOpenedAtLogin)show();
   void auth.restore().catch(()=>auth.set('signed_out','会话恢复失败，请连接学校。'));
 }

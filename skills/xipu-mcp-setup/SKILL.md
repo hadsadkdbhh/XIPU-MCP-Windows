@@ -1,11 +1,15 @@
 ---
 name: xipu-mcp-setup
-description: Build and install the XIPU MCP macOS ARM App from its GitHub repository and register it with the user's local MCP client when the user asks to set up XIPU MCP.
+description: Build and install the XIPU MCP App on Windows x64 or Apple Silicon macOS and register it with the user's local MCP client when the user asks to set up XIPU MCP.
 ---
 
 # XIPU MCP setup
 
-Deploy https://github.com/xyx-chn/XIPU-MCP on the user's Apple Silicon Mac (macOS 13+). This needs a local terminal and filesystem; a remote executor cannot install an App on the user's Mac.
+Deploy XIPU MCP on the user's Windows x64 PC or Apple Silicon Mac (macOS 13+). This needs a local terminal and filesystem; a remote executor cannot install an App on the user's computer.
+
+For Windows, use the Windows port in the current source tree rather than the upstream macOS-only installer. Run `npm ci`, `npm run typecheck`, `npm test`, then `npm run package:win`. Install `dist/XIPU-MCP-Windows-<version>.exe`, then run `node scripts/setup-mcp.mjs --client <client> --app "<actual installation directory>" --config-output "dist\mcp-config.json"`. Windows uses DPAPI, a named pipe, bundled `resources/node.exe` and `resources/bridge.cjs`. The tray menu reopens or quits the App, and background DDL sync appears in the App; do not claim WidgetKit support. The installer is unsigned, so report the possible SmartScreen warning and never disable security features.
+
+For macOS, deploy https://github.com/xyx-chn/XIPU-MCP on Apple Silicon.
 
 Read the repository's [deployment instructions](https://github.com/xyx-chn/XIPU-MCP/blob/main/skills.md), or the local `skills.md` after obtaining the source. Follow its installation and verification workflow. The supported entrypoint is:
 
@@ -27,6 +31,6 @@ The two commands above are alternatives. Use `--with-widget` when the user reque
 
 After the new App has opened once, enable the widget in its deadline page. Right-click the desktop, choose Edit Widgets and add both XIPU deadline sizes. Verify the small widget shows up to two deadlines and the medium widget up to four, manual refresh reaches the desktop, and clicking opens the App/selected deadline. The App syncs the next 30 days from all Moodle courses in Shanghai time; macOS schedules actual widget redraws. Closing the window keeps background sync; quitting the App leaves cached data. Widget enablement defaults login startup on, and the user may turn it off. Report GUI checks as pending when the current environment cannot perform them; MCP smoke success alone does not prove a desktop widget works.
 
-Passwords, email authorization codes and school verification codes are entered by the user in the App. Do not request them in chat, read App secrets, or put them in MCP config. First login, Keychain and macOS security prompts require the user's interaction. Do not bypass platform security to finish deployment.
+Passwords, email authorization codes and school verification codes are entered by the user in the App. Do not request them in chat, read App secrets, or put them in MCP config. First login, Windows DPAPI, Keychain and operating-system security prompts require the user's interaction. Do not bypass platform security to finish deployment.
 
 Report the installation path, chosen client, whether widgets were included, actual verification and any remaining login, widget-addition or reload step. Distinguish a configured client from tools actually loaded into the current conversation.

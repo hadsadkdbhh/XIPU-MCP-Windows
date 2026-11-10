@@ -38,22 +38,22 @@ async function popFixture(mode:'tls'|'starttls',options:{top?:boolean;rejectStar
   const server=mode==='tls'?tls.createServer({secureContext,key:await readFile(path.join(root,'key.pem')),cert:await readFile(path.join(root,'cert.pem'))},s=>handle(s,true)):net.createServer(s=>handle(s,true));
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address() as net.AddressInfo).port;
   const config=MailConfig.parse({protocol:'pop3',host:'localhost',port,security:mode,username:'synthetic-user',recipient:'student@example.net'});
-  return {config,transcript,add:()=>{fresh=true;},close:async()=>{for(const s of sockets)s.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
+  return {config,ca:await readFile(path.join(root,'cert.pem')),transcript,add:()=>{fresh=true;},close:async()=>{for(const s of sockets)s.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
 }
 for(const mode of ['tls','starttls'] as const)test(`POP3 ${mode}: tests no body, filters new headers, retrieves only matching message`,async()=>{
   const fixture=await popFixture(mode);try {
-    const service=new MailService(fixture.config,'synthetic-password');assert.equal((await service.test()).ok,true);assert(!fixture.transcript.some(c=>c.startsWith('RETR')));
+    const service=new MailService(fixture.config,'synthetic-password',fixture.ca);assert.equal((await service.test()).ok,true);assert(!fixture.transcript.some(c=>c.startsWith('RETR')));
     const baseline=await service.baseline();fixture.add();assert.equal(await service.waitForCode(baseline),'123456');
     assert.deepEqual(fixture.transcript.filter(c=>c.startsWith('RETR')),['RETR 3']);assert(!fixture.transcript.some(c=>c.startsWith('DELE')));
     if(mode==='starttls')assert(fixture.transcript.indexOf('STLS')<fixture.transcript.findIndex(c=>c.startsWith('USER')));
   }finally{await fixture.close();}
 });
 test('POP3 missing TOP fails closed without downloading bodies',async()=>{
-  const f=await popFixture('tls',{top:false});try{await assert.rejects(new MailService(f.config,'synthetic').test());assert(!f.transcript.some(c=>c.startsWith('RETR')));}finally{await f.close();}
+  const f=await popFixture('tls',{top:false});try{await assert.rejects(new MailService(f.config,'synthetic',f.ca).test());assert(!f.transcript.some(c=>c.startsWith('RETR')));}finally{await f.close();}
 });
 test('POP3 STARTTLS rejection never sends credentials',async()=>{
-  const f=await popFixture('starttls',{rejectStarttls:true});try{const client=new Pop3Client(f.config,'synthetic');await assert.rejects(client.connect());await client.close();assert(!f.transcript.some(c=>/^(USER|PASS)/.test(c)));}finally{await f.close();}
+  const f=await popFixture('starttls',{rejectStarttls:true});try{const client=new Pop3Client(f.config,'synthetic',f.ca);await assert.rejects(client.connect());await client.close();assert(!f.transcript.some(c=>/^(USER|PASS)/.test(c)));}finally{await f.close();}
 });
 test('POP3 wrong credentials do not fetch messages',async()=>{
-  const f=await popFixture('tls',{rejectPassword:true});try{await assert.rejects(new MailService(f.config,'synthetic').test());assert(!f.transcript.some(c=>/^(TOP|RETR)/.test(c)));}finally{await f.close();}
+  const f=await popFixture('tls',{rejectPassword:true});try{await assert.rejects(new MailService(f.config,'synthetic',f.ca).test());assert(!f.transcript.some(c=>/^(TOP|RETR)/.test(c)));}finally{await f.close();}
 });

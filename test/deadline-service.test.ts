@@ -44,7 +44,7 @@ test('cold start and restart retain only the public deadline snapshot with priva
   const stored = await readFile(path.join(folder, 'snapshot.json'), 'utf8');
   for (const secret of ['deadline-password', 'cookie-value', 'token-value', 'student-private', 'school-private']) assert(!stored.includes(secret));
   assert.deepEqual(Object.keys(first.snapshot.courses[0]).sort(), ['id', 'name', 'shortName']);
-  assert.equal((await stat(path.join(folder, 'snapshot.json'))).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal((await stat(path.join(folder, 'snapshot.json'))).mode & 0o777, 0o600);
   const restarted = service(t, folder, { authState: () => 'signed_out' });
   await restarted.load();
   assert.equal(restarted.snapshot.lastSuccessfulSyncAt, observedAt);

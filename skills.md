@@ -4,7 +4,9 @@
 
 > 请按照 https://github.com/xyx-chn/XIPU-MCP/blob/main/skills.md，在这台 Mac 上编译安装 XIPU MCP，并接入你当前使用的 MCP 客户端。
 
-本指南用于部署本机 App，不需要模型 API Key。支持 Apple Silicon、macOS 13+；不支持 Intel、Windows、Linux 或云端执行器。仅能浏览网页的 AI 无法替用户操作本机。
+本指南用于部署本机 App，不需要模型 API Key。macOS 支持 Apple Silicon、macOS 13+；不支持 Intel、Linux 或云端执行器。仅能浏览网页的 AI 无法替用户操作本机。
+
+Windows x64 使用当前源码树中的 Windows 移植版，不要执行仅支持 macOS 的 `scripts/install.sh`。先运行 `npm ci`、`npm run typecheck`、`npm test` 和 `npm run package:win`，再安装 `dist/XIPU-MCP-Windows-<版本>.exe`。安装后用 `node scripts/setup-mcp.mjs --client <客户端> --app "<实际安装目录>" --config-output "dist\mcp-config.json"` 配置客户端；通过 App 的“AI 接入”也可以获取相同配置。Windows 凭据由 DPAPI 保护，托盘菜单用于重新打开和完全退出，DDL 在 App 内后台同步，不包含 macOS 桌面小组件。Windows 安装包未签名时应如实提示 SmartScreen 风险，不要关闭安全功能。
 
 DDL 桌面小组件需 macOS 14+ 和完整 Xcode。分发以源码为准，接收者的 AI 在本机编译；本机小组件配置自动采用 ad-hoc 签名，不需要 Developer ID 证书、Team ID 或公证凭据。
 

@@ -1,9 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import path from 'node:path';
+import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { brokerRequest } from './broker.js';
 import { AppError,publicError, toolSchemas, type ToolName } from './shared.js';
+import { isWindows } from './platform.js';
 
 const descriptions:Record<ToolName,string>={
   auth_status:'Check the local school connection. Does not expose credentials, email or verification codes.',
@@ -21,11 +23,18 @@ async function ensureApp() {
   try{await brokerRequest('auth_status',{});return;}catch{/* A stale socket after an App crash must not block launch. */}
   if(launching)return launching;
   launching=(async()=>{
-    const appPath=path.resolve(__dirname,'..','..');
-    if(!appPath.endsWith('.app'))throw new AppError('APP_NOT_RUNNING','请先启动开发版 App，再连接开发版 MCP。');
-    const child=spawn('/usr/bin/open',['-g',appPath,'--args','--background'],{stdio:'ignore'});child.on('error',()=>undefined);
+    if(isWindows){
+      const executable=path.resolve(__dirname,'..','XIPU MCP.exe');
+      if(!existsSync(executable))throw new AppError('APP_NOT_RUNNING','请先启动开发版 App，再连接开发版 MCP。');
+      const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+      const child=spawn(executable,['--background'],{detached:true,stdio:'ignore',windowsHide:true,env});child.on('error',()=>undefined);child.unref();
+    }else{
+      const appPath=path.resolve(__dirname,'..','..');
+      if(!appPath.endsWith('.app'))throw new AppError('APP_NOT_RUNNING','请先启动开发版 App，再连接开发版 MCP。');
+      const child=spawn('/usr/bin/open',['-g',appPath,'--args','--background'],{stdio:'ignore'});child.on('error',()=>undefined);
+    }
     for(let i=0;i<120;i++){try{await brokerRequest('auth_status',{});return;}catch{await new Promise(r=>setTimeout(r,250));}}
-    throw new AppError('APP_NOT_RUNNING','App 启动超时，请打开 App 检查钥匙串和连接诊断。');
+    throw new AppError('APP_NOT_RUNNING','App 启动超时，请打开 App 检查系统凭据保护和连接诊断。');
   })().finally(()=>{launching=undefined;});return launching;
 }
 serveStdio(()=>{

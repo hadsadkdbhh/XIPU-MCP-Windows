@@ -1,8 +1,33 @@
 # XIPU MCP
 
-连接西交利物浦大学 Learning Mall Core（Moodle）的本机 macOS App。AI 通过标准 MCP stdio 查询课程、下载附件和查看截止时间。
+连接西交利物浦大学 Learning Mall Core（Moodle）的本机 App。AI 通过标准 MCP stdio 查询课程、下载附件和查看截止时间。本源码树提供 Windows x64 安装包构建，并保留原有 Apple Silicon macOS 版本。
 
-## 一句话让 AI 安装
+## Windows 安装与构建
+
+安装包为 `dist/XIPU-MCP-Windows-<版本>.exe`。运行安装程序后可选择安装目录，并为当前用户创建桌面和开始菜单快捷方式，不需要管理员权限。首次打开 App，在“账户与邮箱”中由本人填写学校账户并连接学校；不要把密码、邮箱授权码或验证码发送到 AI 对话中。
+
+Windows 版使用系统托盘：关闭主窗口不会停止 MCP 和下载任务，可通过托盘菜单重新打开或完全退出。凭据和会话由 Electron safeStorage 调用 Windows DPAPI 加密，应用数据位于 `%APPDATA%\XIPU MCP`。学校登录后，App 在每小时及系统唤醒时后台同步 DDL。Windows 版不包含 macOS WidgetKit 桌面小组件。
+
+在“AI 接入”可生成当前安装目录对应的 MCP 配置。也可在源码目录运行以下命令，将 `--client` 替换为 `codex`、`claude-desktop`、`cursor` 或 `config-only`：
+
+```bat
+node scripts/setup-mcp.mjs --client claude-desktop --app "C:\实际安装目录\XIPU MCP" --config-output "dist\mcp-config.json"
+```
+
+Windows MCP 配置使用安装目录内的 `resources\node.exe` 启动 `resources\bridge.cjs`，不依赖开发目录或系统 Node。Claude Desktop 配置位于 `%APPDATA%\Claude\claude_desktop_config.json`，Cursor 配置位于 `%USERPROFILE%\.cursor\mcp.json`。`config-only` 只导出 JSON，还需按目标客户端的官方方法注册。安装包当前未购买代码签名证书，Windows SmartScreen 可能显示未知发布者警告；请核对安装包来源和 SHA256，不要关闭系统安全功能。
+
+从源码构建需要 Windows x64、Node 22+ 和 npm：
+
+```bat
+npm ci
+npm run typecheck
+npm test
+npm run package:win
+```
+
+构建输出包括 `dist\win-unpacked\XIPU MCP.exe` 和 NSIS 安装包。Electron 及打包工具的下载需要访问对应发行源。
+
+## macOS：一句话让 AI 安装
 
 把下面一句发给能够操作本机终端的 AI：
 
@@ -32,7 +57,7 @@ bash scripts/install.sh --client codex --with-widget
 
 若学校登录会话发生循环跳转，App 会重建本机学校会话并重新打开登录页，保留已配置的账户与密码。页面加载失败时，登录窗口会显示错误提示和“重新加载”入口；无需清除全部凭据。
 
-## 安装与使用
+## macOS 安装与使用
 
 1. 按上方源码部署方法安装 Apple Silicon（M 系列 Mac）的 ARM App，打开 `~/Applications/XIPU MCP.app`。
 2. 在“账户与邮箱”填写学校账户。希望自动取码时，再配置邮箱服务器、认证信息、收码地址及筛选规则。
@@ -107,13 +132,15 @@ DDL 默认未来 30 天，输出 ISO 时间及上海显示时区，区分作业�
 
 任务记录在异常退出后将未完成项标记为失败；重新发现材料后可重试。关闭 MCP 客户端不会取消 App 后台任务。
 
-`~/Library/Application Support/XIPU MCP/` 保存设置、加密凭据、任务记录和 IPC socket；`widgets/snapshot.json` 保存供小组件读取的 DDL 快照。目录权限 0700，秘密文件、token 和 socket 权限 0600。凭据和会话通过 Electron safeStorage／macOS Keychain 加密；源码和构建产物不包含个人配置或课件。
+macOS 的 `~/Library/Application Support/XIPU MCP/` 保存设置、加密凭据、任务记录和 IPC socket；`widgets/snapshot.json` 保存供小组件读取的 DDL 快照。macOS 目录权限 0700，秘密文件、token 和 socket 权限 0600，凭据和会话通过 Electron safeStorage／macOS Keychain 加密。
 
-“清除凭据与会话”停止下载并清除密码、邮箱授权码和 Cookie，保留已下载文件。不同签名／开发版可能触发新的钥匙串授权。
+Windows 的 `%APPDATA%\XIPU MCP` 保存设置、加密凭据、任务记录、DDL 快照、桥接 token 和命名管道信息，凭据和会话通过 Electron safeStorage／Windows DPAPI 加密。访问隔离依赖 Windows 当前用户账户及 ACL；不要共享应用数据目录。源码和构建产物不包含个人配置或课件。
+
+“清除凭据与会话”停止下载并清除密码、邮箱授权码和 Cookie，保留已下载文件。macOS 上不同签名／开发版可能触发新的钥匙串授权。
 
 ## 开发与测试
 
-需要 Apple Silicon Mac、macOS 13+、Node 22+；依赖由 `package-lock.json` 固定。
+Windows x64 或 Apple Silicon Mac（macOS 13+）均可开发，需要独立 Node 22+；不要使用 Electron 内嵌的 Node 运行打包脚本。依赖由 `package-lock.json` 固定。
 
 ```sh
 ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci
@@ -127,17 +154,17 @@ npm run typecheck
 npm test
 ```
 
-测试在临时目录创建 TLS 证书、本机 IMAP／POP3 服务和 Unix socket。测试进程只信任临时证书，不关闭 TLS 校验；结束后清理临时数据。
+测试在临时目录创建 TLS 证书、本机 IMAP／POP3 服务和 Unix socket 或 Windows 命名管道。测试进程只信任临时证书，不关闭 TLS 校验；结束后清理临时数据。
 
 开发版 MCP 命令为 `node /绝对路径/XIPU-MCP/build/bridge.cjs`，需先启动开发版 App。学校 SSO 和 Moodle 适配器需要针对真实页面联调。
 
-## 打包与签名
+## macOS 打包与签名
 
 ```sh
 npm run package:arm64
 ```
 
-输出在 `dist/`，目前仅交付 ARM 版。使用固定 Node 22.23.3 和与 npm 锁文件对应的官方 Electron，下载后校验 SHA256；`npm run package` 构建 ARM 版。
+macOS 输出在 `dist/`。使用固定 Node 22.23.3 和与 npm 锁文件对应的官方 Electron，下载后校验 SHA256；`npm run package` 构建 ARM 版。
 
 带小组件的本机编译：
 

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
-const command=process.argv[2];if(!command)throw new Error('Usage: node scripts/smoke-mcp.mjs <absolute MCP launcher path>');
-const child=spawn(command,[],{stdio:['pipe','pipe','pipe']});let buffer='',id=0;const pending=new Map();
+const command=process.argv[2];if(!command)throw new Error('Usage: node scripts/smoke-mcp.mjs <absolute MCP launcher path> [launcher argument]');
+const commandArgs=process.argv[3]&&!process.argv[3].startsWith('--')?[process.argv[3]]:[];
+const child=spawn(command,commandArgs,{stdio:['pipe','pipe','pipe']});let buffer='',id=0;const pending=new Map();
 child.stderr.on('data',chunk=>process.stderr.write(chunk));
 child.stdout.on('data',chunk=>{buffer+=chunk;while(buffer.includes('\n')){const line=buffer.slice(0,buffer.indexOf('\n'));buffer=buffer.slice(buffer.indexOf('\n')+1);const response=JSON.parse(line);const entry=pending.get(response.id);if(entry){clearTimeout(entry.timer);pending.delete(response.id);entry.resolve(response);}}});
 const request=(method,params)=>new Promise((resolve,reject)=>{const key=++id;const timer=setTimeout(()=>reject(new Error('MCP smoke timeout')),45_000);pending.set(key,{resolve,reject,timer});child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:key,method,params})+'\n');});

@@ -18,7 +18,7 @@ export class Pop3Client {
     error: (e: Error) => { this.failure = e; this.wake?.(); },
     close: () => { this.failure ??= new Error('POP3 connection closed'); this.wake?.(); },
   };
-  constructor(private config: MailSettings, private password: string) {}
+  constructor(private config: MailSettings, private password: string, private testCa?: string | Buffer) {}
   private attach(socket: Connection) {
     this.socket = socket;
     socket.on('data', this.handlers.data); socket.on('error', this.handlers.error); socket.on('close', this.handlers.close);
@@ -29,7 +29,7 @@ export class Pop3Client {
   }
   async connect() {
     if (this.config.security === 'tls') {
-      const socket = tls.connect({ host: this.config.host, port: this.config.port, servername: net.isIP(this.config.host) ? undefined : this.config.host, rejectUnauthorized: true, minVersion: 'TLSv1.2' });
+      const socket = tls.connect({ host: this.config.host, port: this.config.port, servername: net.isIP(this.config.host) ? undefined : this.config.host, rejectUnauthorized: true, minVersion: 'TLSv1.2', ca: this.testCa });
       this.attach(socket); await this.secure(socket);
     } else {
       this.attach(net.connect({ host: this.config.host, port: this.config.port }));
@@ -38,7 +38,7 @@ export class Pop3Client {
     if (this.config.security === 'starttls') {
       await this.command('STLS');
       this.detach();
-      const socket = tls.connect({ socket: this.socket!, servername: net.isIP(this.config.host) ? undefined : this.config.host, rejectUnauthorized: true, minVersion: 'TLSv1.2' });
+      const socket = tls.connect({ socket: this.socket!, servername: net.isIP(this.config.host) ? undefined : this.config.host, rejectUnauthorized: true, minVersion: 'TLSv1.2', ca: this.testCa });
       this.attach(socket); await this.secure(socket);
     }
     await this.command('USER ' + this.safe(this.config.username));

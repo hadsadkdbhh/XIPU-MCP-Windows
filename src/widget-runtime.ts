@@ -4,7 +4,9 @@ import path from 'node:path';
 
 export function loadWidgetRuntime(): {available:boolean; message:string; reload:()=>void} {
   if (process.platform !== 'darwin' || !app.isPackaged) return {
-    available:false, message:'请安装支持桌面小组件的 macOS 版本。', reload:()=>{},
+    available:false,
+    message:process.platform === 'win32' ? 'Windows 版不提供 macOS 桌面小组件；可在 App 中查看 DDL，并保持每小时后台同步。' : '请安装支持桌面小组件的 macOS 版本。',
+    reload:()=>{},
   };
   try {
     const load = createRequire(path.join(app.getAppPath(),'package.json'));

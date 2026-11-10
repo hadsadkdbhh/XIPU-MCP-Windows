@@ -62,7 +62,7 @@ test('running App or a symlink destination is never overwritten', async () => {
     await assert.rejects(installApp(f.source, f.destination, { ...f, running: () => true }), /running/);
     assert.equal(await readFile(path.join(f.destination, 'old'), 'utf8'), 'old app');
     await rm(f.destination, { recursive: true });
-    await symlink(f.source, f.destination);
+    await symlink(f.source, f.destination, process.platform === 'win32' ? 'junction' : undefined);
     await assert.rejects(installApp(f.source, f.destination, f), /symlink/);
     await assert.rejects(installApp(f.source, path.join(f.root, 'Other.app'), f), /destination/);
   } finally { await rm(f.root, { recursive: true, force: true }); }

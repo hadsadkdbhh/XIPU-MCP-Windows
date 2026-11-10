@@ -41,11 +41,11 @@ async function fixture(mode:'tls'|'starttls',rejectTls=false) {
   };
   const server=mode==='tls'?tls.createServer(options,s=>handle(s,true)):net.createServer(s=>handle(s,true));
   await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));const port=(server.address() as net.AddressInfo).port;
-  return {config:MailConfig.parse({host:'localhost',port,security:mode,username:'synthetic-user',recipient:'student@example.net'}),transcript,add:()=>{fresh=true;},close:async()=>{for(const s of sockets)s.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
+  return {config:MailConfig.parse({host:'localhost',port,security:mode,username:'synthetic-user',recipient:'student@example.net'}),ca:await readFile(path.join(root,'cert.pem')),transcript,add:()=>{fresh=true;},close:async()=>{for(const s of sockets)s.destroy();await new Promise<void>(resolve=>server.close(()=>resolve()));}};
 }
 for(const mode of ['tls','starttls'] as const)test(`IMAP ${mode}: read-only baseline and BODY.PEEK never retrieve unrelated mail`,async()=>{
   const f=await fixture(mode);try{
-    const service=new MailService(f.config,'synthetic-password');assert.equal((await service.test()).ok,true);
+    const service=new MailService(f.config,'synthetic-password',f.ca);assert.equal((await service.test()).ok,true);
     assert(!f.transcript.some(line=>/FETCH/i.test(line)));
     const baseline=await service.baseline();f.add();assert.equal(await service.waitForCode(baseline),'123456');
     assert(f.transcript.some(line=>/EXAMINE/.test(line)));assert(!f.transcript.some(line=>/\bSELECT\b|\bSTORE\b|\bEXPUNGE\b/.test(line)));
@@ -53,5 +53,5 @@ for(const mode of ['tls','starttls'] as const)test(`IMAP ${mode}: read-only base
   }finally{await f.close();}
 });
 test('IMAP STARTTLS cannot fall back to sending authentication',async()=>{
-  const f=await fixture('starttls',true);try{await assert.rejects(new MailService(f.config,'synthetic-password').test());assert(!f.transcript.some(line=>/AUTHENTICATE|LOGIN/.test(line)));}finally{await f.close();}
+  const f=await fixture('starttls',true);try{await assert.rejects(new MailService(f.config,'synthetic-password',f.ca).test());assert(!f.transcript.some(line=>/AUTHENTICATE|LOGIN/.test(line)));}finally{await f.close();}
 });

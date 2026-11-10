@@ -38,7 +38,7 @@ test('redirects to authentication and symbolic-link directories cannot write fil
   const f=await fixture(()=>new Response(null,{status:302,headers:{location:'https://uim.xjtlu.edu.cn/login'}}));
   try{
     await assert.rejects(f.manager.download(f.material),{code:'AUTH_REQUIRED'});
-    const outside=path.join(f.root,'outside');await mkdir(outside);const course=path.join(f.store.settings.downloadDirectory,'Maths--42');await rm(course,{recursive:true,force:true});await symlink(outside,course);
+    const outside=path.join(f.root,'outside');await mkdir(outside);const course=path.join(f.store.settings.downloadDirectory,'Maths--42');await rm(course,{recursive:true,force:true});await symlink(outside,course,process.platform==='win32'?'junction':undefined);
     await assert.rejects(f.manager.download(f.material),{code:'PATH_DENIED'});assert.deepEqual(await readdir(outside),[]);
   }finally{await f.close();}
 });
